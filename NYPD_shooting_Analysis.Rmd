@@ -1,0 +1,167 @@
+---
+title: "nypd data"
+author: "abcd"
+date: "2026-10-01"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+```
+
+# NYC Shooting Incidents Data Analysis
+
+## 1. Installing Packages and Importing the Data
+
+```
+
+# Install packages if they are not already installed
+# install.packages("tidyverse")
+
+
+# Import the data
+url <- "https://data.cityofnewyork.us/api/v3/views/833y-fsy8/export.csv?accessType=DOWNLOAD"
+data <- read.csv(url)
+```{r load-data}
+url <- "https://data.cityofnewyork.us/api/v3/views/833y-fsy8/export.csv?accessType=DOWNLOAD"
+
+data <- read.csv(url)
+
+```
+# Examine the dataset
+```{r examine-data}
+str(data)
+names(data)
+summary(data)
+```
+## cleaning the data 
+
+```{r clean-data}
+#converting null and blank values into NA 
+data[data == "(null)" | data == ""] <- NA
+# converting date variable to date format
+data$OCCUR_DATE <- as.Date(data$OCCUR_DATE, format= "%m/%d/%Y")
+# Convert categorical variables to factors
+data$BORO <- as.factor(data$BORO)
+data$LOC_OF_OCCUR_DESC <- as.factor(data$LOC_OF_OCCUR_DESC)
+data$LOC_CLASSFCTN_DESC <- as.factor(data$LOC_CLASSFCTN_DESC)
+data$LOCATION_DESC <- as.factor(data$LOCATION_DESC)
+data$STATISTICAL_MURDER_FLAG <- as.factor(data$STATISTICAL_MURDER_FLAG)
+data$PERP_AGE_GROUP <- as.factor(data$PERP_AGE_GROUP)
+data$PERP_SEX <- as.factor(data$PERP_SEX)
+data$PERP_RACE <- as.factor(data$PERP_RACE)
+data$VIC_AGE_GROUP <- as.factor(data$VIC_AGE_GROUP)
+data$VIC_SEX <- as.factor(data$VIC_SEX)
+data$VIC_RACE <- as.factor(data$VIC_RACE)
+#check to see the changes
+str(data)
+# seing and counting the missing values 
+colSums(is.na(data))
+```
+
+The dataset contains 29,744 observations and 21 variables. I converted `OCCUR_DATE` from a character variable to a Date variable because it represents the date on which each incident occurred. I also converted the categorical variables, including borough, location information, perpetrator characteristics, and victim characteristics, to factors. I converted the values represented as "(null)" or blank entries to NA so that missing data could be properly identified.
+
+After cleaning the data, I checked the summary of the dataset and the number of missing values in each variable. There are missing values in several variables, particularly variables related to the location of the incident and perpetrator information. I do not plan to remove all observations with missing values because doing so would result in a substantial loss of data. Instead, I will keep the observations and handle missing values depending on the variable and analysis being performed
+
+## incidents by borough 
+
+This visualization allowed me to see the shotting incidents recordby borough which allowed me to compare the distribution of incidents acroos the boroughs of New York City. 
+
+
+```{r borough-plot, echo=TRUE, fig.width=8, fig.height=5}
+ggplot(data, aes(x = BORO)) +
+  geom_bar() +
+  geom_text(
+    stat = "count",
+    aes(label = after_stat(count)),
+    vjust = -0.5
+  ) +
+  labs(
+    title = "Number of Incidents by Borough",
+    x = "Borough",
+    y = "Number of Incidents"
+  ) 
+```
+
+# incidents over time
+
+this second visualization gaves us an understanding on how shooting incidents behaved each year which helps us identify changes and trends of incidents over time. 
+
+```{r incidents-over-time, echo=TRUE, fig.width=8, fig.height=5}
+yearly_data <- data %>%
+  mutate(year = format(OCCUR_DATE, "%Y")) %>%
+  group_by(year) %>%
+  summarise(incidents = n())
+
+ggplot(yearly_data, aes(x = year, y = incidents, group = 1)) +
+  geom_line() +
+  geom_point() +
+  labs(
+    title = "Number of Incidents per Year",
+    x = "Year",
+    y = "Number of Incidents"
+  )
+``` 
+
+# deeper look into 2019-2020 boom in shooting incidents
+
+```{r incidents-2019-2020, echo=TRUE, fig.width=9, fig.height=5}
+monthly_data <- data %>%
+  filter(format(OCCUR_DATE, "%Y") %in% c("2019", "2020")) %>%
+  mutate(month = format(OCCUR_DATE, "%Y-%m")) %>%
+  group_by(month) %>%
+  summarise(incidents = n())
+
+ggplot(monthly_data, aes(x = month, y = incidents, group = 1)) +
+  geom_line() +
+  geom_point() +
+  labs(
+    title = "Number of Incidents by Month (2019–2020)",
+    x = "Month",
+    y = "Number of Incidents"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+``` 
+
+Why was there such a sudden rise in shootings during 2019–2020? When I saw this, I looked into it and realized that it strangely coincided with the start of COVID-19. I then did some research and found that New York went into lockdown on March 22, 2020, which made me wonder if these unusual circumstances contributed to the increase in shooting incidents. However, I was still curious about why the COVID period would have such an impact, so I did some more research. I found that this period also coincided with the rise of the New York drill genre, a style of music where different gang members would rap over beats and talk trash or insult opposing groups and neighborhoods. As drill became more mainstream, some of these conflicts reportedly spilled into real-life disputes, with some individuals feeling the need to "get back" for disrespect. This made me question whether the rise of drill culture during this period may have also played a role in the increase in shootings.
+
+# Model: Monthly Shooting Incidents by Borough (2019–2020)
+
+To investigate the change in shooting incidents during 2019 and 2020, I created a Poisson regression model using monthly shooting incident counts by borough.
+
+```{r poisson-model}
+monthly_borough_2019_2020 <- data %>%
+  filter(format(OCCUR_DATE, "%Y") %in% c("2019", "2020")) %>%
+  mutate(month = format(OCCUR_DATE, "%Y-%m")) %>%
+  group_by(month, BORO) %>%
+  summarise(
+    incidents = n(),
+    .groups = "drop"
+  )
+
+poisson_model <- glm(
+  incidents ~ BORO + month,
+  data = monthly_borough_2019_2020,
+  family = poisson()
+)
+
+summary(poisson_model)
+```
+
+The Poisson regression helped me take a deeper look at the changes in shooting incidents between 2019 and 2020. The results showed that the number of incidents was different across the boroughs, with Brooklyn having higher expected incident counts than the Bronx, while Manhattan, Queens, and Staten Island had lower expected counts.
+The biggest change in the model happened during 2020. May through December all had statistically significant positive coefficients compared with January 2019. The largest increases were seen during June, July, and August, which matches what I saw in my visualization. For example, July 2020 had a coefficient of 1.641. When this value is exponentiated, it is about 5.16, meaning that the model estimated about 5.16 times the number of incidents compared with the January 2019 reference level, while accounting for borough.
+This model supports what I saw in the graphs: there was a large increase in shooting incidents during parts of 2020. However, the model does not prove that COVID-19 caused this increase. It only shows that the number of shooting incidents was associated with certain months during this period. Other factors could have contributed to the increase, so additional data would be needed to investigate the reasons behind it.
+
+# Conclusion
+
+Overall, this project helped me understand how data can be used to identify patterns in shooting incidents in New York City. By looking at the data by borough and over time, I was able to see differences in the number of incidents and a noticeable increase during certain periods, particularly between 2019 and 2020. The Poisson regression also supported the pattern I saw in the visualizations, showing that several months in 2020 had significantly higher incident counts compared with the reference period. This raised additional questions about what factors may have contributed to these changes.
+
+There are also several possible sources of bias in this analysis. The dataset only includes reported shooting incidents, meaning it may not represent every incident that occurred. There is also missing information for some variables, particularly information about perpetrators and locations, which could affect certain analyses. Another source of bias was my own interpretation of the results. When I first saw the increase in shootings around 2019–2020, I immediately associated it with events that I already knew were happening during that period, such as COVID-19 and the rise of New York drill music. However, I did not have specific data in this dataset to support a direct relationship between these factors and the increase in shootings. This could have caused me to focus more on explanations that seemed to fit the pattern I observed.
+
+To reduce this bias, I tried to separate what the data actually showed from my own possible explanations. The analysis shows that shooting incidents increased during certain periods, especially in 2020, but it does not explain why the increase happened. I therefore avoided treating these factors as causes and recognized that additional data would be needed to determine whether COVID-19, drill music, or other factors were actually related to the increase in shooting incidents.
